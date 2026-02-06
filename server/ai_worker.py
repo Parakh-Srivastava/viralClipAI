@@ -12,7 +12,7 @@ class Reel(TypedDict):
 class AiWorker:
     def __init__(self, timeout: int = 300) -> None:
         self.client = httpx.Client(timeout=timeout)
-        self.model = "llama3.2" 
+        self.model = "llama3.1" 
 
     def get_reels_timestamps(self, transcript_data: Any) -> List[Reel]:
         formatted_transcript = self._format_transcript(transcript_data)
@@ -49,7 +49,7 @@ class AiWorker:
         """
 
         try:
-            print("⏳ Sending to Llama 3.2...")
+            print("⏳ Sending to Llama 3.1...")
             response = self.client.post(
                 "http://localhost:11434/api/generate",
                 json={
