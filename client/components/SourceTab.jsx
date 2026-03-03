@@ -2,7 +2,6 @@ import React, { useRef } from "react";
 import { Upload, Wand, FileVideo } from "lucide-react";
 import { motion } from "framer-motion";
 
-// notice the 'export const' here - this is what App.jsx is looking for
 export const SourceTab = ({
   onVideoUpload,
   onAnalyze,
@@ -23,15 +22,22 @@ export const SourceTab = ({
         }`}
       >
         <div className="text-center p-6">
-          {hasVideo ? (
+          {/* We check for BOTH hasVideo and videoFile existence */}
+          {hasVideo && videoFile ? (
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
             >
               <FileVideo className="w-12 h-12 text-violet-400 mx-auto mb-4" />
-              <p className="font-bold text-white">{videoFile.name}</p>
+              {/* Added optional chaining here */}
+              <p className="font-bold text-white">
+                {videoFile?.name || "Video Loaded"}
+              </p>
               <p className="text-xs text-neutral-500 mt-2">
-                {(videoFile.size / 1024 / 1024).toFixed(1)} MB
+                {videoFile?.size
+                  ? (videoFile.size / 1024 / 1024).toFixed(1)
+                  : "0"}{" "}
+                MB
               </p>
             </motion.div>
           ) : (

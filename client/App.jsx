@@ -10,6 +10,7 @@ import "./App.css";
 export default function App() {
   const [videoFile, setVideoFile] = useState(null);
   const [videoUrl, setVideoUrl] = useState("");
+  const [serverVideoPath, setServerVideoPath] = useState(""); // Stores the dynamic path from Python
   const [clips, setClips] = useState([]);
   const [currentTab, setCurrentTab] = useState("source");
   const [statusLog, setStatusLog] = useState("Ready to upload video...");
@@ -36,24 +37,56 @@ export default function App() {
   };
 
   // --- HANDLERS ---
-  const handleVideoUpload = (file) => {
-    setVideoFile(file);
-    const url = URL.createObjectURL(file);
-    setVideoUrl(url);
-    setStatusLog(`Video loaded: ${file.name}`);
-    setCurrentTab("source");
-    setClips([]);
-    setRenderedClips([]);
-  };
 
-  const handleAnalyze = async () => {
-    setIsAnalyzing(true);
-    setStatusLog("🚀 Sending to Llama 3.2 for analysis...");
+  /**
+   * STEP 1: UPLOAD
+   * Sends the physical file to the server's 'uploaded_videos' folder.
+   * Receives an absolute path in return.
+   */
+  const handleVideoUpload = async (file) => {
+    setVideoFile(file);
+    setVideoUrl(URL.createObjectURL(file)); // For local browser preview
+    setStatusLog("📤 Uploading video to server...");
+
+    const formData = new FormData();
+    formData.append("file", file);
 
     try {
-      // We trigger the backend to analyze the file at the hardcoded path
+      const response = await fetch("http://localhost:5000/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+
+      if (data.status === "success") {
+        setServerVideoPath(data.video_path); // Save path for Step 2
+        setStatusLog(`✅ Uploaded: ${file.name}. Ready for AI analysis.`);
+      } else {
+        setStatusLog(`❌ Upload Failed: ${data.message}`);
+      }
+    } catch (error) {
+      setStatusLog("❌ Connection error: Is the Python backend running?");
+    }
+  };
+
+  /**
+   * STEP 2: ANALYZE
+   * Sends the server-side path to the AI worker.
+   */
+  const handleAnalyze = async () => {
+    if (!serverVideoPath) {
+      setStatusLog("❌ Error: Upload not finished. Please wait.");
+      return; // Stop the function here
+    }
+
+    setIsAnalyzing(true);
+    setStatusLog("🚀 AI is transcribing and finding viral moments...");
+
+    try {
       const response = await fetch("http://localhost:5000/analyze", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_path: serverVideoPath }), // Send dynamic path
       });
       const data = await response.json();
 
@@ -66,28 +99,27 @@ export default function App() {
         }));
 
         setClips(mappedClips);
-        setIsAnalyzing(false);
-        setStatusLog(
-          `✅ Analysis complete. Found ${mappedClips.length} viral moments.`,
-        );
+        setStatusLog(`✅ Found ${mappedClips.length} clips!`);
         setCurrentTab("editor");
       } else {
-        setStatusLog(`❌ Error: ${data.message}`);
-        setIsAnalyzing(false);
+        setStatusLog(`❌ AI Error: ${data.message}`);
       }
     } catch (error) {
-      console.error(error);
-      setStatusLog("❌ Failed to connect to Python Backend");
+      setStatusLog("❌ Failed to connect to Analysis Engine.");
+    } finally {
       setIsAnalyzing(false);
     }
   };
 
+  /**
+   * STEP 3: RENDER
+   * Sends the edited timestamps and source path for FFmpeg processing.
+   */
   const handleRender = async () => {
     setIsRendering(true);
-    setStatusLog("🎬 Rendering final clips with FFmpeg...");
+    setStatusLog("🎬 FFmpeg is cutting and stitching your clips...");
 
     try {
-      // Convert seconds back to HH:MM:SS for Python
       const payload = clips.map((c) => ({
         start_time: formatTime(c.startTime),
         end_time: formatTime(c.endTime),
@@ -96,34 +128,33 @@ export default function App() {
       const response = await fetch("http://localhost:5000/render", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clips: payload }),
+        body: JSON.stringify({
+          clips: payload,
+          video_path: serverVideoPath, // Ensure the engine knows which source to cut
+        }),
       });
       const data = await response.json();
 
       if (data.status === "success") {
         setRenderedClips([...clips]);
-        setIsRendering(false);
-        setStatusLog(`✨ Success! Rendered ${clips.length} clips.`);
+        setStatusLog(`✨ Render Complete!`);
         setCurrentTab("output");
-        // If backend returns a summary URL, use it
-        if (data.summary_url) {
-          setVideoUrl(data.summary_url);
-        }
+        if (data.summary_url) setVideoUrl(data.summary_url); // Switch preview to output
       } else {
-        setStatusLog(`❌ Render Failed: ${data.message}`);
-        setIsRendering(false);
+        setStatusLog(`❌ Render Error: ${data.message}`);
       }
     } catch (error) {
-      setStatusLog("❌ Render Connection Failed");
+      setStatusLog("❌ Render Connection Failed.");
+    } finally {
       setIsRendering(false);
     }
   };
 
+  // --- EDITOR UI LOGIC ---
   const handleSeekTo = (time) => {
     if (videoRef.current) {
       videoRef.current.currentTime = time;
       videoRef.current.play();
-      setStatusLog(`Seeking to ${formatTime(time)}`);
     }
   };
 
@@ -133,9 +164,6 @@ export default function App() {
         clip.id === id ? { ...clip, startTime, endTime } : clip,
       ),
     );
-    setStatusLog(
-      `Clip updated: ${formatTime(startTime)} → ${formatTime(endTime)}`,
-    );
   };
 
   const handleDeleteClip = (id) => {
@@ -143,81 +171,64 @@ export default function App() {
       const filtered = prev.filter((clip) => clip.id !== id);
       return filtered.map((clip, idx) => ({ ...clip, index: idx + 1 }));
     });
-    setStatusLog("Clip deleted");
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white flex flex-col font-sans selection:bg-violet-500 selection:text-white">
-      {/* Header */}
-      <header className="border-b border-violet-500/30 bg-black/40 backdrop-blur-sm sticky top-0 z-50">
-        <div className="px-6 py-4 flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-black bg-gradient-to-r from-violet-400 to-purple-600 bg-clip-text text-transparent tracking-tighter">
-              VIRAL<span className="text-white">COMMAND</span>
-            </h1>
-            <p className="text-[10px] text-neutral-400 font-mono tracking-widest uppercase mt-0.5">
-              AI-Powered Non-Linear Editor
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div
-              className={`w-2 h-2 rounded-full ${isAnalyzing || isRendering ? "bg-yellow-400 animate-pulse" : "bg-green-500"}`}
-            ></div>
-            <span className="text-xs font-mono text-neutral-500">
-              SYSTEM ONLINE
-            </span>
-          </div>
+    <div className="min-h-screen bg-neutral-950 text-white flex flex-col font-sans">
+      <header className="border-b border-violet-500/30 bg-black/40 backdrop-blur-sm p-4 flex justify-between items-center sticky top-0 z-50">
+        <h1 className="text-xl font-black bg-gradient-to-r from-violet-400 to-purple-600 bg-clip-text text-transparent">
+          VIRAL<span className="text-white">COMMAND</span>
+        </h1>
+        <div className="flex items-center gap-2 text-xs font-mono text-neutral-500">
+          <div
+            className={`w-2 h-2 rounded-full ${isAnalyzing || isRendering ? "bg-yellow-400 animate-pulse" : "bg-green-500"}`}
+          />
+          SYSTEM{" "}
+          {isAnalyzing ? "ANALYZING" : isRendering ? "RENDERING" : "READY"}
         </div>
       </header>
 
-      {/* Main Split Screen */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel - Video Player */}
-        <div className="w-[55%] border-r border-violet-500/30 bg-neutral-900/50 p-6 flex flex-col justify-center relative">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-violet-900/5 to-transparent pointer-events-none"></div>
+        {/* LEFT PANEL */}
+        <div className="w-[55%] border-r border-violet-500/30 bg-neutral-900/50 p-6 flex items-center justify-center">
           <VideoPlayer
             videoUrl={videoUrl}
             videoRef={videoRef}
-            onTimeUpdate={(time) => {}}
+            onTimeUpdate={() => {}}
           />
         </div>
 
-        {/* Right Panel - Control Deck */}
-        <div className="w-[45%] flex flex-col bg-neutral-950 relative z-10 shadow-2xl">
-          {/* Tab Navigation */}
-          <div className="flex border-b border-violet-500/30 bg-black/40">
+        {/* RIGHT PANEL */}
+        <div className="w-[45%] flex flex-col bg-neutral-950">
+          <div className="flex border-b border-violet-500/30">
             {["source", "editor", "output"].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setCurrentTab(tab)}
-                disabled={!videoFile && tab !== "source"}
-                className={`flex-1 px-6 py-4 text-xs font-bold uppercase tracking-widest transition-all ${
+                disabled={!serverVideoPath && tab !== "source"}
+                className={`flex-1 py-4 text-xs font-bold uppercase tracking-widest transition-all ${
                   currentTab === tab
                     ? "bg-violet-600/10 text-violet-400 border-b-2 border-violet-500"
-                    : "text-neutral-500 hover:text-white hover:bg-white/5"
-                } disabled:opacity-30 disabled:cursor-not-allowed`}
+                    : "text-neutral-500"
+                } disabled:opacity-20`}
               >
                 {tab}
               </button>
             ))}
           </div>
 
-          {/* Tab Content */}
-          <div className="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-violet-900 scrollbar-track-transparent">
+          <div className="flex-1 overflow-auto p-4">
             <motion.div
               key={currentTab}
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.2 }}
-              className="h-full"
             >
               {currentTab === "source" && (
                 <SourceTab
                   onVideoUpload={handleVideoUpload}
                   onAnalyze={handleAnalyze}
-                  hasVideo={!!videoFile}
+                  hasVideo={!!serverVideoPath}
                   isAnalyzing={isAnalyzing}
-                  videoFile={videoFile}
                 />
               )}
               {currentTab === "editor" && (
@@ -243,7 +254,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Status Bar */}
       <StatusBar log={statusLog} />
     </div>
   );
