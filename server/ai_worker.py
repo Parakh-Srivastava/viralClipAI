@@ -12,7 +12,7 @@ class Reel(TypedDict):
 class AiWorker:
     def __init__(self, timeout: int = 300) -> None:
         self.client = httpx.Client(timeout=timeout)
-        self.model = "llama3.1" 
+        self.model = "llama3.2:3b" 
 
     def get_reels_timestamps(self, transcript_data: Any) -> List[Reel]:
         formatted_transcript = self._format_transcript(transcript_data)

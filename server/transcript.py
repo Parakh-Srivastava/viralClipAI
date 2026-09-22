@@ -1,7 +1,7 @@
 import os
 from typing import List
-from moviepy import VideoFileClip # type: ignore
-from faster_whisper import WhisperModel # type: ignore
+from moviepy import VideoFileClip 
+from faster_whisper import WhisperModel 
 
 class Transcriber:
     """Extracts audio from video and transcribes it using Faster Whisper."""
@@ -18,7 +18,7 @@ class Transcriber:
                 video.audio.write_audiofile(audio_path, codec='mp3', logger=None)
         
         # Add this comment at the end of your transcribe line
-        segments, info = self.model.transcribe(audio_path)  # type: ignore
+        segments, info = self.model.transcribe(audio_path)  
         
         transcript_lines: List[str] = []
         for s in segments:
